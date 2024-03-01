@@ -345,20 +345,20 @@ export class GetWork extends OpenAPIRoute {
 			if (!job) {
 				return [];
 			}
-			const { objects: checkpoints } = await env.CHECKPOINT_BUCKET.list({ prefix: job.checkpoint_prefix });
-			const checkpointsSorted = sortBucketObjectsByDateDesc(checkpoints);
-			if (checkpointsSorted.length) {
-				job.resume_from = checkpointsSorted[0].key;
-			}
-
-			const { objects: trainingData } = await env.TRAINING_BUCKET.list({ prefix: job.instance_data_prefix });
-			job.instance_data_keys = trainingData.map((obj) => obj.key);
-
 			if (job.status === 'pending') {
 				await updateJobStatus(job.id!, 'running', env);
 			} else {
 				await updateJobHeartbeat(job.id!, env);
 			}
+			const { objects: checkpoints } = await env.CHECKPOINT_BUCKET.list({ prefix: job.checkpoint_prefix });
+			const checkpointsSorted = sortBucketObjectsByDateDesc(checkpoints);
+			if (checkpointsSorted.length) {
+				job.resume_from = checkpointsSorted[0].key;
+			}
+			const { objects: trainingData } = await env.TRAINING_BUCKET.list({ prefix: job.instance_data_prefix });
+			job.instance_data_keys = trainingData.map((obj) => obj.key);
+
+			
 			return [job];
 		} catch (e) {
 			console.error(e);
