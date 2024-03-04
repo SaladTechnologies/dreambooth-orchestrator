@@ -165,3 +165,15 @@ export async function logTrainingEvent(jobId: string, eventType: string, eventDa
 		.bind(id, jobId, eventType, JSON.stringify(eventData))
 		.run();
 }
+
+export async function listAllJobs(env: Env): Promise<any[]> {
+	const { results } = await env.DB.prepare('SELECT * FROM TrainingJobs ORDER BY created_at ASC').all();
+	results.forEach(coerceBools);
+	return results;
+}
+
+export async function listJobsWithStatus(status: string, env: Env): Promise<any[]> {
+	const { results } = await env.DB.prepare('SELECT * FROM TrainingJobs WHERE status = ? ORDER BY created_at ASC').bind(status).all();
+	results.forEach(coerceBools);
+	return results;
+}

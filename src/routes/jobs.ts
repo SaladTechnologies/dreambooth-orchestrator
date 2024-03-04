@@ -1,6 +1,6 @@
 import { OpenAPIRoute, Str, Int, Num, Bool, Enumeration, Uuid, DateTime, Path, Query } from '@cloudflare/itty-router-openapi';
 import { Env, TrainingStatusWebhook } from '../types';
-import { createNewJob, getJob, getHighestPriorityJob, updateJobStatus, updateJobHeartbeat, markJobComplete } from '../utils/db';
+import { createNewJob, getJob, getHighestPriorityJob, updateJobStatus, updateJobHeartbeat, markJobComplete, listAllJobs, listJobsWithStatus } from '../utils/db';
 import { sortBucketObjectsByDateDesc } from '../utils/buckets';
 import { error } from '../utils/error';
 
@@ -415,5 +415,41 @@ export class JobHeartbeat extends OpenAPIRoute {
 			return error(500, { error: 'Internal Server Error' });
 		}
 		return { status: 'ok' };
+	}
+}
+
+export class ListJobs extends OpenAPIRoute {
+	static schema = {
+		summary: 'List Jobs',
+		description: 'List jobs',
+		parameters: {
+			status: Query(Enumeration, { description: 'Status', required: false, values: ['pending', 'running', 'complete', 'failed', 'canceled'] }),
+		},
+		responses: {
+			'200': {
+				description: 'OK',
+				schema: [JobSchema],
+			},
+			'500': {
+				description: 'Internal Server Error',
+				schema: {
+					error: String,
+				},
+			},
+		},
+	};
+
+	async handle(request: Request, env: Env, ctx: any, data: any) {
+		try {
+			if (data.query.status) {
+				const jobs = await listJobsWithStatus(data.query.status, env);
+				return jobs;
+			}
+			const jobs = await listAllJobs(env);
+			return jobs;
+		} catch (e) {
+			console.error(e);
+			return error(500, { error: 'Internal Server Error' });
+		}
 	}
 }

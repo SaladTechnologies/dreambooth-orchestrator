@@ -1,5 +1,5 @@
 import { OpenAPIRouter, OpenAPIRoute } from '@cloudflare/itty-router-openapi';
-import { CreateJob, GetJobById, GetWork, JobHeartbeat, JobCompleteHandler, JobFailedHandler, JobProgressHandler, StopJobById } from './routes/jobs';
+import { CreateJob, GetJobById, GetWork, JobHeartbeat, JobCompleteHandler, JobFailedHandler, JobProgressHandler, StopJobById, ListJobs } from './routes/jobs';
 import { GetUploadToken, CreateOrCompleteUpload, UploadPart, AbortOrDeleteUpload } from './routes/uploads';
 import { GetDownloadToken, DownloadFile } from './routes/downloads';
 import { ListEventsForJob } from './routes/events';
@@ -21,6 +21,7 @@ router.all('*', validateAuth);
 router.all('*', withParams);
 
 router.post('/job', CreateJob);
+router.get('/jobs', ListJobs);
 router.get('/job/:id', GetJobById);
 router.post('/job/:id/stop', StopJobById);
 router.get('/job/:id/events', ListEventsForJob);
@@ -48,18 +49,9 @@ class CatchAll extends OpenAPIRoute {
 		responses: {
 			'404': {
 				description: 'Not Found',
-				content: {
-					'application/json': {
-						schema: {
-							type: 'object',
-							properties: {
-								error: {
-									type: 'string',
-								},
-							},
-						},
-					},
-				},
+				schema: {
+					error: String
+				}
 			},
 		},
 	};
