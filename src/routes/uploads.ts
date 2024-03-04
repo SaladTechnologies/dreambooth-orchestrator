@@ -1,7 +1,6 @@
 import { OpenAPIRoute, Query, Path, Enumeration, Int } from '@cloudflare/itty-router-openapi';
 
 import { Env} from '../types';
-import crypto from 'node:crypto';
 import { getBucket } from '../utils/buckets';
 import { error } from '../utils/error';
 

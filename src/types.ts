@@ -12,16 +12,21 @@ export interface Env {
 	TRAINING_BUCKET_NAME: string;
 }
 
+export interface SaladData {
+	organization_name?: string;
+	project_name?: string;
+	container_group_name?: string;
+	machine_id?: string;
+	container_group_id?: string;
+}
 
-export type TrainingStatusWebhook = {
-	organization_name: string;
-	project_name: string;
-	container_group_name: string;
-	machine_id: string;
-	container_group_id: string;
+export interface TrainingStatusWebhook extends SaladData {
 	bucket_name: string;
 	key: string;
 	job_id: string;
-};
+}
 
-export type UploadDownloadParams = { key: string; bucket: string };
+export interface UploadDownloadParams {
+	key: string;
+	bucket: string;
+}

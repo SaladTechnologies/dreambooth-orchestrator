@@ -1,4 +1,4 @@
-import {  Env, TrainingStatusWebhook } from '../types';
+import { Env, SaladData, TrainingStatusWebhook } from '../types';
 
 function generateInsertStatement(job: any): string {
 	const keys = Object.keys(job);
@@ -12,9 +12,12 @@ function generateInsertStatement(job: any): string {
 }
 
 export async function createNewJob(job: any, env: Env): Promise<any | null> {
-	await env.DB.prepare(generateInsertStatement(job))
-		.bind(...Object.values(job).map((v) => (typeof v === 'boolean' ? (v ? 1 : 0) : v)))
-		.all();
+	await Promise.all([
+		env.DB.prepare(generateInsertStatement(job))
+			.bind(...Object.values(job).map((v) => (typeof v === 'boolean' ? (v ? 1 : 0) : v)))
+			.all(),
+		logTrainingEvent(job.id, 'created', {}, env),
+	]);
 	return getJob(job.id!, env);
 }
 
@@ -23,7 +26,7 @@ const coerceBools = (job: any) => {
 	boolKeys.forEach((k) => {
 		job[k] = !!job[k];
 	});
-}
+};
 
 export async function getJob(id: string, env: Env): Promise<any | null> {
 	const { results } = await env.DB.prepare('SELECT * FROM TrainingJobs WHERE id = ?').bind(id).all();
@@ -71,21 +74,32 @@ export async function getHighestPriorityJob(env: Env): Promise<any | null> {
 	return null;
 }
 
-export async function updateJobStatus(id: string, status: string, env: Env): Promise<void> {
+export async function updateJobStatus(id: string, status: string, env: Env, saladData: SaladData): Promise<void> {
 	let timeStatement = '';
+	let eventName;
 	switch (status) {
 		case 'running':
 			timeStatement = ', started_at = datetime("now")';
+			eventName = 'started';
 			break;
 		case 'failed':
 			timeStatement = ', failed_at = datetime("now")';
+			eventName = status;
+			break;
 		case 'canceled':
 			timeStatement = ', canceled_at = datetime("now")';
+			eventName = status;
 			break;
 		default:
 			throw new Error(`Invalid status: ${status}`);
 	}
-	await env.DB.prepare(`UPDATE TrainingJobs SET status = ?${timeStatement}, last_heartbeat = datetime("now") WHERE id = ?`).bind(status, id).run();
+	const promises: Promise<any>[] = [
+		env.DB.prepare(`UPDATE TrainingJobs SET status = ?${timeStatement}, last_heartbeat = datetime("now") WHERE id = ?`)
+			.bind(status, id)
+			.run(),
+		logTrainingEvent(id, eventName, getSaladDataFromWebhookData(saladData), env),
+	];
+	await Promise.all(promises);
 }
 
 export async function getJobStatus(id: string, env: Env): Promise<string | null> {
@@ -96,22 +110,58 @@ export async function getJobStatus(id: string, env: Env): Promise<string | null>
 	return results[0].status as string;
 }
 
-export async function updateJobHeartbeat(id: string, env: Env): Promise<void> {
+export async function updateJobHeartbeat(id: string, saladData: SaladData, env: Env): Promise<void> {
 	const currentStatus = await getJobStatus(id, env);
 	if (currentStatus !== 'running') {
 		const err = new Error('Job not running');
 		(err as any).status = 400;
 		throw err;
 	}
-	await env.DB.prepare("UPDATE TrainingJobs SET last_heartbeat = datetime('now') WHERE id = ? AND status = 'running'").bind(id).run();
+
+	await Promise.all([
+		env.DB.prepare("UPDATE TrainingJobs SET last_heartbeat = datetime('now') WHERE id = ? AND status = 'running'").bind(id).run(),
+		logTrainingEvent(id, 'heartbeat', saladData, env),
+	]);
 }
 
+const getSaladDataFromWebhookData = (webhookData: SaladData): SaladData => {
+	const saladData: SaladData = {};
+	if (webhookData.organization_name) {
+		saladData.organization_name = webhookData.organization_name;
+	}
+	if (webhookData.project_name) {
+		saladData.project_name = webhookData.project_name;
+	}
+	if (webhookData.container_group_name) {
+		saladData.container_group_name = webhookData.container_group_name;
+	}
+	if (webhookData.machine_id) {
+		saladData.machine_id = webhookData.machine_id;
+	}
+	if (webhookData.container_group_id) {
+		saladData.container_group_id = webhookData.container_group_id;
+	}
+	return saladData;
+};
+
 export async function markJobComplete(webhookData: TrainingStatusWebhook, env: Env): Promise<void> {
-	await env.DB.prepare(
-		`UPDATE TrainingJobs
+	await Promise.all([
+		env.DB.prepare(
+			`UPDATE TrainingJobs
   SET status = 'complete', model_key = ?, model_bucket = ?, completed_at = datetime('now')
   WHERE id = ?;`
+		)
+			.bind(webhookData.key, webhookData.bucket_name, webhookData.job_id)
+			.run(),
+		logTrainingEvent(webhookData.job_id, 'complete', getSaladDataFromWebhookData(webhookData), env),
+	]);
+}
+
+export async function logTrainingEvent(jobId: string, eventType: string, eventData: SaladData, env: Env): Promise<void> {
+	const id = crypto.randomUUID();
+	await env.DB.prepare(
+		'INSERT INTO TrainingJobEvents (id, job_id, event_type, event_data, timestamp) VALUES (?, ?, ?, ?, datetime("now"))'
 	)
-		.bind(webhookData.key, webhookData.bucket_name, webhookData.job_id)
+		.bind(id, jobId, eventType, JSON.stringify(eventData))
 		.run();
 }

@@ -2,6 +2,7 @@ import { OpenAPIRouter, OpenAPIRoute } from '@cloudflare/itty-router-openapi';
 import { CreateJob, GetJobById, GetWork, JobHeartbeat, JobCompleteHandler, JobFailedHandler, JobProgressHandler, StopJobById } from './routes/jobs';
 import { GetUploadToken, CreateOrCompleteUpload, UploadPart, AbortOrDeleteUpload } from './routes/uploads';
 import { GetDownloadToken, DownloadFile } from './routes/downloads';
+import { ListEventsForJob } from './routes/events';
 import { validateAuth, validateDownloadToken, validateUploadToken } from './middleware';
 import { Env } from './types';
 import { withParams } from 'itty-router'
@@ -22,6 +23,7 @@ router.all('*', withParams);
 router.post('/job', CreateJob);
 router.get('/job/:id', GetJobById);
 router.post('/job/:id/stop', StopJobById);
+router.get('/job/:id/events', ListEventsForJob);
 
 router.get('/work', GetWork);
 
@@ -37,6 +39,7 @@ router.delete('/upload/:bucket/:key+', validateUploadToken, AbortOrDeleteUpload)
 
 router.get('/download/token', GetDownloadToken);
 router.get('/download/:bucket/:key+', validateDownloadToken, DownloadFile);
+
 
 class CatchAll extends OpenAPIRoute {
 	static schema = {

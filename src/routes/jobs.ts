@@ -1,8 +1,7 @@
-import { OpenAPIRoute, Str, Int, Num, Bool, Enumeration, Uuid, DateTime, Path } from '@cloudflare/itty-router-openapi';
+import { OpenAPIRoute, Str, Int, Num, Bool, Enumeration, Uuid, DateTime, Path, Query } from '@cloudflare/itty-router-openapi';
 import { Env, TrainingStatusWebhook } from '../types';
 import { createNewJob, getJob, getHighestPriorityJob, updateJobStatus, updateJobHeartbeat, markJobComplete } from '../utils/db';
 import { sortBucketObjectsByDateDesc } from '../utils/buckets';
-import crypto from 'node:crypto';
 import { error } from '../utils/error';
 
 const CreateJobSchema = {
@@ -80,6 +79,22 @@ const WorkSchema = {
 	...JobSchema,
 	instance_data_keys: [String],
 };
+
+export const SaladDataSchema = {
+	organization_name: new Str({ description: 'Salad Organization Name', required: false  }),
+	project_name: new Str({ description: 'Salad Project Name', required: false}),
+	container_group_name: new Str({ description: 'Salad Container Group Name', required: false}),
+	machine_id: new Str({ description: 'Salad Machine ID', required: false}),
+	container_group_id: new Str({ description: 'Salad Container Group ID', required: false}),
+};
+
+const JobStatusWebhookSchema = {
+	job_id: new Uuid({ description: 'Job ID', required: true }),
+	...SaladDataSchema,
+	bucket_name: new Str({ description: 'Checkpoint Bucket Name', required: true }),
+	key: new Str({ description: 'Checkpoint Key', required: true }),
+};
+
 
 export class CreateJob extends OpenAPIRoute {
 	static schema = {
@@ -200,7 +215,7 @@ export class StopJobById extends OpenAPIRoute {
 	async handle(request: Request, env: Env, ctx: any, data: any) {
 		const { id } = data.params;
 		try {
-			await updateJobStatus(id, 'canceled', env);
+			await updateJobStatus(id, 'canceled', env, {});
 		} catch (e) {
 			console.error(e);
 			return error(500, { error: 'Internal Server Error' });
@@ -230,16 +245,6 @@ const cleanupOldCheckpoints = async (content: TrainingStatusWebhook, env: Env) =
 	return true;
 };
 
-const JobStatusWebhookSchema = {
-	job_id: new Uuid({ description: 'Job ID', required: true }),
-	organization_name: new Str({ description: 'Salad Organization Name', required: false,  }),
-	project_name: new Str({ description: 'Salad Project Name', required: false}),
-	container_group_name: new Str({ description: 'Salad Container Group Name', required: false}),
-	machine_id: new Str({ description: 'Salad Machine ID', required: false}),
-	container_group_id: new Str({ description: 'Salad Container Group ID', required: false}),
-	bucket_name: new Str({ description: 'Checkpoint Bucket Name', required: true }),
-	key: new Str({ description: 'Checkpoint Key', required: true }),
-};
 
 const StatusWebhookResponse = {
 	'200': {
@@ -311,7 +316,7 @@ export class JobFailedHandler extends OpenAPIRoute {
 	async handle(request: Request, env: Env, ctx: any, data: any) {
 		const content = data.body;
 		try {
-			await updateJobStatus(content.job_id, 'failed', env);
+			await updateJobStatus(content.job_id, 'failed', env, content);
 		} catch (e) {
 			console.error(e);
 			return error(500, { error: 'Internal Server Error' });
@@ -325,6 +330,13 @@ export class GetWork extends OpenAPIRoute {
 	static schema = {
 		summary: 'Get Work',
 		description: 'Get work to do',
+		parameters: {
+			machine_id: Query(Str, { description: 'Salad Machine ID', required: false }),
+			container_group_id: Query(Str, { description: 'Salad Container Group ID', required: false }),
+			container_group_name: Query(Str, { description: 'Salad Container Group Name', required: false }),
+			project_name: Query(Str, { description: 'Salad Project Name', required: false }),
+			organization_name: Query(Str, { description: 'Salad Organization Name', required: false }),
+		},
 		responses: {
 			'200': {
 				description: 'OK',
@@ -339,16 +351,16 @@ export class GetWork extends OpenAPIRoute {
 		},
 	};
 
-	async handle(request: Request, env: Env, ctx: any) {
+	async handle(request: Request, env: Env, ctx: any, data: any) {
 		try {
 			const job = await getHighestPriorityJob(env);
 			if (!job) {
 				return [];
 			}
 			if (job.status === 'pending') {
-				await updateJobStatus(job.id!, 'running', env);
+				await updateJobStatus(job.id!, 'running', env, data.query);
 			} else {
-				await updateJobHeartbeat(job.id!, env);
+				await updateJobHeartbeat(job.id!, data.query, env);
 			}
 			const { objects: checkpoints } = await env.CHECKPOINT_BUCKET.list({ prefix: job.checkpoint_prefix });
 			const checkpointsSorted = sortBucketObjectsByDateDesc(checkpoints);
@@ -374,6 +386,7 @@ export class JobHeartbeat extends OpenAPIRoute {
 		parameters: {
 			id: Path(Str, { description: 'Job ID', required: true }),
 		},
+		requestBody: SaladDataSchema,
 		responses: {
 			'200': {
 				description: 'OK',
@@ -393,7 +406,7 @@ export class JobHeartbeat extends OpenAPIRoute {
 	async handle(request: Request, env: Env, ctx: any, data: any) {
 		const { id } = data.params;
 		try {
-			await updateJobHeartbeat(id, env);
+			await updateJobHeartbeat(id, data.body, env);
 		} catch (e: any) {
 			if (e.status === 400) {
 				return error(400, { error: 'Bad Request', message: e.message });

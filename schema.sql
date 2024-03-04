@@ -40,3 +40,13 @@ CREATE TABLE IF NOT EXISTS TrainingJobs (
 );
 CREATE INDEX idx_running_jobs ON TrainingJobs (status, last_heartbeat, created_at) WHERE status = 'running';
 CREATE INDEX idx_pending_jobs ON TrainingJobs (status, created_at) WHERE status = 'pending';
+
+DROP TABLE IF EXISTS TrainingJobEvents;
+CREATE TABLE IF NOT EXISTS TrainingJobEvents (
+  id UNIQUEIDENTIFIER PRIMARY KEY NOT NULL,
+  job_id UNIQUEIDENTIFIER NOT NULL,
+  event_type TEXT NOT NULL,
+  event_data TEXT NOT NULL,
+  timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_job_events ON TrainingJobEvents (job_id, event_type, timestamp);
