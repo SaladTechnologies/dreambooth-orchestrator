@@ -379,6 +379,54 @@ export class GetWork extends OpenAPIRoute {
 	}
 }
 
+export class PeekWork extends OpenAPIRoute {
+	static schema = {
+		summary: 'Peek Work',
+		description: 'Get the next job to do without marking it as running',
+		parameters: {
+			machine_id: Query(Str, { description: 'Salad Machine ID', required: false }),
+			container_group_id: Query(Str, { description: 'Salad Container Group ID', required: false }),
+			container_group_name: Query(Str, { description: 'Salad Container Group Name', required: false }),
+			project_name: Query(Str, { description: 'Salad Project Name', required: false }),
+			organization_name: Query(Str, { description: 'Salad Organization Name', required: false }),
+		},
+		responses: {
+			'200': {
+				description: 'OK',
+				schema: [WorkSchema],
+			},
+			'500': {
+				description: 'Internal Server Error',
+				schema: {
+					error: String,
+				},
+			},
+		},
+	};
+
+	async handle(request: Request, env: Env, ctx: any, data: any) {
+		try {
+			const job = await getHighestPriorityJob(env);
+			if (!job) {
+				return [];
+			}
+			
+			const { objects: checkpoints } = await env.CHECKPOINT_BUCKET.list({ prefix: job.checkpoint_prefix });
+			const checkpointsSorted = sortBucketObjectsByDateDesc(checkpoints);
+			if (checkpointsSorted.length) {
+				job.resume_from = checkpointsSorted[0].key;
+			}
+			const { objects: trainingData } = await env.TRAINING_BUCKET.list({ prefix: job.instance_data_prefix });
+			job.instance_data_keys = trainingData.map((obj) => obj.key);
+
+			return [job];
+		} catch (e) {
+			console.error(e);
+			return error(500, { error: 'Internal Server Error' });
+		}
+	}
+}
+
 export class JobHeartbeat extends OpenAPIRoute {
 	static schema = {
 		summary: 'Job Heartbeat',

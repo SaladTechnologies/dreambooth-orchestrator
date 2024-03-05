@@ -1,20 +1,31 @@
 import { OpenAPIRouter, OpenAPIRoute } from '@cloudflare/itty-router-openapi';
-import { CreateJob, GetJobById, GetWork, JobHeartbeat, JobCompleteHandler, JobFailedHandler, JobProgressHandler, StopJobById, ListJobs } from './routes/jobs';
+import {
+	CreateJob,
+	GetJobById,
+	GetWork,
+	JobHeartbeat,
+	JobCompleteHandler,
+	JobFailedHandler,
+	JobProgressHandler,
+	StopJobById,
+	ListJobs,
+	PeekWork,
+} from './routes/jobs';
 import { GetUploadToken, CreateOrCompleteUpload, UploadPart, AbortOrDeleteUpload } from './routes/uploads';
 import { GetDownloadToken, DownloadFile } from './routes/downloads';
 import { ListEventsForJob } from './routes/events';
 import { validateAuth, validateDownloadToken, validateUploadToken } from './middleware';
 import { Env } from './types';
-import { withParams } from 'itty-router'
+import { withParams } from 'itty-router';
 
 const router = OpenAPIRouter({
 	schema: {
 		info: {
 			title: 'SDXL Dreambooth LoRA API',
 			description: 'API for running SDXL Dreambooth LoRA training jobs.',
-			version: '0.1.0',
-		}
-	}
+			version: '0.2.0',
+		},
+	},
 });
 
 router.all('*', validateAuth);
@@ -27,6 +38,7 @@ router.post('/job/:id/stop', StopJobById);
 router.get('/job/:id/events', ListEventsForJob);
 
 router.get('/work', GetWork);
+router.get('/work/peek', PeekWork);
 
 router.post('/heartbeat/:id', JobHeartbeat);
 router.post('/progress', JobProgressHandler);
@@ -41,7 +53,6 @@ router.delete('/upload/:bucket/:key+', validateUploadToken, AbortOrDeleteUpload)
 router.get('/download/token', GetDownloadToken);
 router.get('/download/:bucket/:key+', validateDownloadToken, DownloadFile);
 
-
 class CatchAll extends OpenAPIRoute {
 	static schema = {
 		summary: 'Catch All',
@@ -50,14 +61,14 @@ class CatchAll extends OpenAPIRoute {
 			'404': {
 				description: 'Not Found',
 				schema: {
-					error: String
-				}
+					error: String,
+				},
 			},
 		},
 	};
 
 	async handle(request: Request, env: Env) {
-		return new Response(JSON.stringify({ error: 'Not Found' }), { status: 404 });
+		return new Response(JSON.stringify({ error: 'Route Not Found' }), { status: 404 });
 	}
 }
 
