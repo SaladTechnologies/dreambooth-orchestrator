@@ -22,7 +22,7 @@ export async function createNewJob(job: any, env: Env): Promise<any | null> {
 }
 
 const coerceBools = (job: any) => {
-	const boolKeys = ['use_8bit_adam', 'train_text_encoder', 'gradient_checkpointing', 'with_prior_preservation'];
+	const boolKeys = ['use_8bit_adam', 'train_text_encoder', 'gradient_checkpointing', 'with_prior_preservation', 'center_crop', 'random_flip'];
 	boolKeys.forEach((k) => {
 		job[k] = !!job[k];
 	});

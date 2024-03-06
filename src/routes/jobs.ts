@@ -1,11 +1,21 @@
 import { OpenAPIRoute, Str, Int, Num, Bool, Enumeration, Uuid, DateTime, Path, Query } from '@cloudflare/itty-router-openapi';
 import { Env, TrainingStatusWebhook } from '../types';
-import { createNewJob, getJob, getHighestPriorityJob, updateJobStatus, updateJobHeartbeat, markJobComplete, listAllJobs, listJobsWithStatus } from '../utils/db';
+import {
+	createNewJob,
+	getJob,
+	getHighestPriorityJob,
+	updateJobStatus,
+	updateJobHeartbeat,
+	markJobComplete,
+	listAllJobs,
+	listJobsWithStatus,
+} from '../utils/db';
 import { sortBucketObjectsByDateDesc } from '../utils/buckets';
 import { error } from '../utils/error';
 
 const CreateJobSchema = {
-	instance_prompt: new Str({ description: 'Prompt', required: true }),
+	instance_prompt: new Str({ description: 'Instance Prompt', required: true }),
+	class_prompt: new Str({ description: 'Class Prompt', required: false }),
 	max_train_steps: new Int({ description: 'Max Training Steps', default: 500, required: false }),
 	train_batch_size: new Int({ description: 'Train Batch Size', default: 1, required: false }),
 	learning_rate: new Num({ description: 'Learning Rate', default: 0.000002, required: false }),
@@ -35,7 +45,41 @@ const CreateJobSchema = {
 	validation_epochs: new Int({ description: 'Validation Epochs', default: 50, required: false }),
 	checkpointing_steps: new Int({ description: 'Checkpointing Steps', default: 100, required: false }),
 	instance_data_prefix: new Str({ description: 'Data Prefix for instance training images', required: true }),
-	class_data_prefix: new Str({ description: 'Data Prefix for class training images', required: false }),
+	num_class_images: new Int({
+		description:
+			'Number of class images for prior preservation loss. If there are not enough ' +
+			'images already present in class_data_dir, additional images will be sampled ' +
+			'with class_prompt.',
+		default: 100,
+		required: false,
+	}),
+	center_crop: new Bool({
+		description:
+			'Whether to center crop the input images to the resolution. If not set, the images ' +
+			'will be randomly cropped. The images will be resized to the resolution first before cropping.',
+		default: false,
+		required: false,
+	}),
+	random_flip: new Bool({
+		description: 'Whether to randomly flip the input images horizontally.',
+		default: false,
+		required: false,
+	}),
+	sample_batch_size: new Int({
+		description: 'Batch size for sampling images',
+		default: 4,
+		required: false,
+	}),
+	num_train_epochs: new Int({
+		description: 'Number of training epochs',
+		default: 1,
+		required: false,
+	}),
+	text_encoder_lr: new Num({
+		description: 'Learning rate for the text encoder',
+		default: 0.000005,
+		required: false,
+	}),
 };
 
 const JobSchema = {
@@ -72,6 +116,7 @@ const JobSchema = {
 		values: ['train_dreambooth_lora_sdxl.py'],
 		enumCaseSensitive: false,
 	}),
+	class_data_prefix: new Str({ description: 'Data Prefix for class training images', required: false }),
 	...CreateJobSchema,
 };
 
@@ -81,11 +126,11 @@ const WorkSchema = {
 };
 
 export const SaladDataSchema = {
-	organization_name: new Str({ description: 'Salad Organization Name', required: false  }),
-	project_name: new Str({ description: 'Salad Project Name', required: false}),
-	container_group_name: new Str({ description: 'Salad Container Group Name', required: false}),
-	machine_id: new Str({ description: 'Salad Machine ID', required: false}),
-	container_group_id: new Str({ description: 'Salad Container Group ID', required: false}),
+	organization_name: new Str({ description: 'Salad Organization Name', required: false }),
+	project_name: new Str({ description: 'Salad Project Name', required: false }),
+	container_group_name: new Str({ description: 'Salad Container Group Name', required: false }),
+	machine_id: new Str({ description: 'Salad Machine ID', required: false }),
+	container_group_id: new Str({ description: 'Salad Container Group ID', required: false }),
 };
 
 const JobStatusWebhookSchema = {
@@ -94,7 +139,6 @@ const JobStatusWebhookSchema = {
 	bucket_name: new Str({ description: 'Checkpoint Bucket Name', required: true }),
 	key: new Str({ description: 'Checkpoint Key', required: true }),
 };
-
 
 export class CreateJob extends OpenAPIRoute {
 	static schema = {
@@ -127,6 +171,10 @@ export class CreateJob extends OpenAPIRoute {
 		content.data_bucket = env.TRAINING_BUCKET_NAME;
 		content.checkpoint_bucket = env.CHECKPOINT_BUCKET_NAME;
 		content.checkpoint_prefix = `loras/${content.id}/`;
+
+		if (content.class_prompt) {
+			content.class_data_prefix = `loras/${content.id}-class/`;
+		}
 
 		try {
 			const job = await createNewJob(content, env);
@@ -245,7 +293,6 @@ const cleanupOldCheckpoints = async (content: TrainingStatusWebhook, env: Env) =
 	return true;
 };
 
-
 const StatusWebhookResponse = {
 	'200': {
 		description: 'OK',
@@ -326,6 +373,23 @@ export class JobFailedHandler extends OpenAPIRoute {
 	}
 }
 
+async function hydrateDataFiles(job: any, env: Env): Promise<any> {
+	const { objects: checkpoints } = await env.CHECKPOINT_BUCKET.list({ prefix: job.checkpoint_prefix });
+	const checkpointsSorted = sortBucketObjectsByDateDesc(checkpoints);
+	if (checkpointsSorted.length) {
+		job.resume_from = checkpointsSorted[0].key;
+	}
+	const { objects: trainingData } = await env.TRAINING_BUCKET.list({ prefix: job.instance_data_prefix });
+	job.instance_data_keys = trainingData.map((obj) => obj.key);
+
+	if (job.class_data_prefix) {
+		const { objects: classData } = await env.TRAINING_BUCKET.list({ prefix: job.class_data_prefix });
+		job.class_data_keys = classData.map((obj) => obj.key);
+	}
+
+	return job;
+}
+
 export class GetWork extends OpenAPIRoute {
 	static schema = {
 		summary: 'Get Work',
@@ -353,7 +417,7 @@ export class GetWork extends OpenAPIRoute {
 
 	async handle(request: Request, env: Env, ctx: any, data: any) {
 		try {
-			const job = await getHighestPriorityJob(env);
+			let job = await getHighestPriorityJob(env);
 			if (!job) {
 				return [];
 			}
@@ -362,15 +426,8 @@ export class GetWork extends OpenAPIRoute {
 			} else {
 				await updateJobHeartbeat(job.id!, data.query, env);
 			}
-			const { objects: checkpoints } = await env.CHECKPOINT_BUCKET.list({ prefix: job.checkpoint_prefix });
-			const checkpointsSorted = sortBucketObjectsByDateDesc(checkpoints);
-			if (checkpointsSorted.length) {
-				job.resume_from = checkpointsSorted[0].key;
-			}
-			const { objects: trainingData } = await env.TRAINING_BUCKET.list({ prefix: job.instance_data_prefix });
-			job.instance_data_keys = trainingData.map((obj) => obj.key);
+			job = await hydrateDataFiles(job, env);
 
-			
 			return [job];
 		} catch (e) {
 			console.error(e);
@@ -406,18 +463,12 @@ export class PeekWork extends OpenAPIRoute {
 
 	async handle(request: Request, env: Env, ctx: any, data: any) {
 		try {
-			const job = await getHighestPriorityJob(env);
+			let job = await getHighestPriorityJob(env);
 			if (!job) {
 				return [];
 			}
-			
-			const { objects: checkpoints } = await env.CHECKPOINT_BUCKET.list({ prefix: job.checkpoint_prefix });
-			const checkpointsSorted = sortBucketObjectsByDateDesc(checkpoints);
-			if (checkpointsSorted.length) {
-				job.resume_from = checkpointsSorted[0].key;
-			}
-			const { objects: trainingData } = await env.TRAINING_BUCKET.list({ prefix: job.instance_data_prefix });
-			job.instance_data_keys = trainingData.map((obj) => obj.key);
+
+			job = await hydrateDataFiles(job, env);
 
 			return [job];
 		} catch (e) {
@@ -471,7 +522,11 @@ export class ListJobs extends OpenAPIRoute {
 		summary: 'List Jobs',
 		description: 'List jobs',
 		parameters: {
-			status: Query(Enumeration, { description: 'Status', required: false, values: ['pending', 'running', 'complete', 'failed', 'canceled'] }),
+			status: Query(Enumeration, {
+				description: 'Status',
+				required: false,
+				values: ['pending', 'running', 'complete', 'failed', 'canceled'],
+			}),
 		},
 		responses: {
 			'200': {
