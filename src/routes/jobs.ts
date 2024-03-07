@@ -80,6 +80,7 @@ const CreateJobSchema = {
 		default: 0.000005,
 		required: false,
 	}),
+	class_data_prefix: new Str({ description: 'Data Prefix for class training images', required: false }),
 };
 
 const JobSchema = {
@@ -116,7 +117,6 @@ const JobSchema = {
 		values: ['train_dreambooth_lora_sdxl.py'],
 		enumCaseSensitive: false,
 	}),
-	class_data_prefix: new Str({ description: 'Data Prefix for class training images', required: false }),
 	...CreateJobSchema,
 };
 
@@ -172,7 +172,7 @@ export class CreateJob extends OpenAPIRoute {
 		content.checkpoint_bucket = env.CHECKPOINT_BUCKET_NAME;
 		content.checkpoint_prefix = `loras/${content.id}/`;
 
-		if (content.class_prompt) {
+		if (content.class_prompt && !content.class_data_prefix) {
 			content.class_data_prefix = `loras/${content.id}-class/`;
 		}
 
