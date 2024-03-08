@@ -6,7 +6,8 @@ export async function validateAuth(req: Request, env: Env) {
 	if (!auth) {
 		return error(401, { error: 'Unauthorized', message: 'API Key required'});
 	}
-	if (auth !== env.API_KEY) {
+	let token = await env.USER_TOKENS.get(auth)
+	if (!token) {
 		return error(403, { error: 'Forbidden', message: 'Invalid API Key' });
 	}
 	return;

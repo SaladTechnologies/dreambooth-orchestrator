@@ -8,6 +8,7 @@ export interface Env {
 	TRAINING_BUCKET: R2Bucket;
 	UPLOAD_TOKENS: KVNamespace;
 	DOWNLOAD_TOKENS: KVNamespace;
+	USER_TOKENS: KVNamespace;
 	CHECKPOINT_BUCKET_NAME: string;
 	TRAINING_BUCKET_NAME: string;
 }
