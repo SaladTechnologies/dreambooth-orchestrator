@@ -10,6 +10,10 @@ export async function validateAuth(req: Request, env: Env) {
 	if (!token) {
 		return error(403, { error: 'Forbidden', message: 'Invalid API Key' });
 	}
+	/**
+	 * TODO: Implement any further access controls here
+	 */
+
 	return;
 }
 
