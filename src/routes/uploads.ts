@@ -57,15 +57,8 @@ export class CreateOrCompleteUpload extends OpenAPIRoute {
 				content: {
 					'application/json': {
 						schema: {
-							type: 'object',
-							properties: {
-								key: {
-									type: 'string',
-								},
-								uploadId: {
-									type: 'string',
-								},
-							},
+							key: String,
+							uploadId: String,
 						},
 					},
 				},
@@ -200,12 +193,7 @@ export class AbortOrDeleteUpload extends OpenAPIRoute {
 				content: {
 					'application/json': {
 						schema: {
-							type: 'object',
-							properties: {
-								error: {
-									type: 'string',
-								},
-							},
+							error: String
 						},
 					},
 				},
