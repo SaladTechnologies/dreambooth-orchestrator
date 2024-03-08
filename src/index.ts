@@ -16,7 +16,7 @@ import { GetDownloadToken, DownloadFile } from './routes/downloads';
 import { ListEventsForJob } from './routes/events';
 import { validateAuth, validateDownloadToken, validateUploadToken } from './middleware';
 import { Env } from './types';
-import { withParams } from 'itty-router';
+import { withParams, createCors } from 'itty-router';
 
 const router = OpenAPIRouter({
 	schema: {
@@ -27,7 +27,11 @@ const router = OpenAPIRouter({
 		},
 	},
 });
+const { preflight, corsify } = createCors({
+	methods: ['GET', 'POST', 'PUT', 'DELETE'],
+})
 
+router.all('*', preflight);
 router.all('*', validateAuth);
 router.all('*', withParams);
 
@@ -75,5 +79,7 @@ class CatchAll extends OpenAPIRoute {
 router.all('*', CatchAll);
 
 export default {
-	fetch: router.handle,
+	fetch: async (request: Request, env: Env, ctx: any) => {
+		return router.handle(request, env, ctx).then(corsify);
+	}
 };
