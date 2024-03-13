@@ -179,13 +179,13 @@ export async function listJobsWithStatus(status: string, env: Env): Promise<any[
 }
 
 export async function incrementFailedAttempts(jobId: string, env: Env): Promise<void> {
-	await env.DB.prepare('UPDATE TrainingJobs SET failed_attempts = failed_attempts + 1 WHERE id = ?').bind(jobId).run();
+	await env.DB.prepare('UPDATE TrainingJobs SET num_failures = num_failures + 1 WHERE id = ?').bind(jobId).run();
 }
 
 export async function getFailedAttempts(jobId: string, env: Env): Promise<number> {
-	const { results } = await env.DB.prepare('SELECT failed_attempts FROM TrainingJobs WHERE id = ?').bind(jobId).all();
+	const { results } = await env.DB.prepare('SELECT num_failures FROM TrainingJobs WHERE id = ?').bind(jobId).all();
 	if (!results.length) {
 		return 0;
 	}
-	return results[0]['failed_attempts'] as number;
+	return results[0]['num_failures'] as number;
 }
