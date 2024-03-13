@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS TrainingJobs (
   random_flip BOOLEAN NOT NULL DEFAULT FALSE,
   sample_batch_size INT NOT NULL DEFAULT 4,
   num_train_epochs INT,
-  text_encoder_lr FLOAT NOT NULL DEFAULT 0.000005
+  text_encoder_lr FLOAT NOT NULL DEFAULT 0.000005,
+  num_failures INT NOT NULL DEFAULT 0
 );
 
 CREATE INDEX idx_running_jobs ON TrainingJobs (status, last_heartbeat, created_at)

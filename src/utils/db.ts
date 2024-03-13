@@ -38,7 +38,7 @@ export async function getJob(id: string, env: Env): Promise<any | null> {
 	return job;
 }
 
-export async function getHighestPriorityJob(env: Env): Promise<any | null> {
+export async function getHighestPriorityJob(env: Env, num: number = 1): Promise<any | null> {
 	const { results: runningResults } = await env.DB.prepare(
 		`
 	SELECT *
@@ -49,12 +49,12 @@ export async function getHighestPriorityJob(env: Env): Promise<any | null> {
 		  (last_heartbeat IS NULL AND created_at < datetime('now', '-' || ? || ' seconds'))
 	)
 	ORDER BY last_heartbeat
-	LIMIT 1;`
+	LIMIT ?;`
 	)
-		.bind(env.MAX_HEARTBEAT_AGE, env.MAX_HEARTBEAT_AGE)
+		.bind(env.MAX_HEARTBEAT_AGE, env.MAX_HEARTBEAT_AGE, num)
 		.all();
-	if (runningResults.length) {
-		const job = runningResults[0];
+	if (runningResults.length >= num) {
+		const job = runningResults[num-1];
 		coerceBools(job);
 		return job;
 	}
@@ -64,10 +64,10 @@ export async function getHighestPriorityJob(env: Env): Promise<any | null> {
     FROM TrainingJobs
     WHERE status = 'pending'
     ORDER BY last_heartbeat
-    LIMIT 1;`
-	).all();
-	if (pendingResults.length) {
-		const job = pendingResults[0];
+    LIMIT ?;`
+	).bind(num).all();
+	if (pendingResults.length >= num) {
+		const job = pendingResults[num-1];
 		coerceBools(job);
 		return job;
 	}
@@ -176,4 +176,16 @@ export async function listJobsWithStatus(status: string, env: Env): Promise<any[
 	const { results } = await env.DB.prepare('SELECT * FROM TrainingJobs WHERE status = ? ORDER BY created_at ASC').bind(status).all();
 	results.forEach(coerceBools);
 	return results;
+}
+
+export async function incrementFailedAttempts(jobId: string, env: Env): Promise<void> {
+	await env.DB.prepare('UPDATE TrainingJobs SET failed_attempts = failed_attempts + 1 WHERE id = ?').bind(jobId).run();
+}
+
+export async function getFailedAttempts(jobId: string, env: Env): Promise<number> {
+	const { results } = await env.DB.prepare('SELECT failed_attempts FROM TrainingJobs WHERE id = ?').bind(jobId).all();
+	if (!results.length) {
+		return 0;
+	}
+	return results[0]['failed_attempts'] as number;
 }

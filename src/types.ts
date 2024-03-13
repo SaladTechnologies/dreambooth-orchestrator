@@ -5,10 +5,13 @@ export interface Env {
 	API_HEADER: string;
 	MAX_STORED_CHECKPOINTS: string;
 	MAX_HEARTBEAT_AGE: string;
+	MAX_FAILED_ATTEMPTS: string;
+	MAX_FAILURES_PER_WORKER: string;
 	TRAINING_BUCKET: R2Bucket;
 	UPLOAD_TOKENS: KVNamespace;
 	DOWNLOAD_TOKENS: KVNamespace;
 	USER_TOKENS: KVNamespace;
+	BANNED_WORKERS: KVNamespace;
 	CHECKPOINT_BUCKET_NAME: string;
 	TRAINING_BUCKET_NAME: string;
 }

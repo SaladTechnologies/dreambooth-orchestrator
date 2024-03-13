@@ -9,6 +9,8 @@ import {
 	markJobComplete,
 	listAllJobs,
 	listJobsWithStatus,
+	incrementFailedAttempts,
+	getFailedAttempts,
 } from '../utils/db';
 import { sortBucketObjectsByDateDesc } from '../utils/buckets';
 import { error } from '../utils/error';
@@ -363,7 +365,14 @@ export class JobFailedHandler extends OpenAPIRoute {
 	async handle(request: Request, env: Env, ctx: any, data: any) {
 		const content = data.body;
 		try {
-			await updateJobStatus(content.job_id, 'failed', env, content);
+			await Promise.all([
+				env.BANNED_WORKERS.put(`${content.machine_id}:${content.job_id}`, 'banned'),
+				incrementFailedAttempts(content.job_id, env),
+			]);
+			const failedAttempts = await getFailedAttempts(content.job_id, env);
+			if (failedAttempts >= parseInt(env.MAX_FAILED_ATTEMPTS)) {
+				await updateJobStatus(content.job_id, 'failed', env, content);
+			}
 		} catch (e) {
 			console.error(e);
 			return error(500, { error: 'Internal Server Error' });
@@ -416,15 +425,29 @@ export class GetWork extends OpenAPIRoute {
 	};
 
 	async handle(request: Request, env: Env, ctx: any, data: any) {
+		const { machine_id } = data.query;
 		try {
-			let job = await getHighestPriorityJob(env);
+			let attempts = 0;
+			let maxAttempts = parseInt(env.MAX_FAILURES_PER_WORKER);
+			let job;
+			while (attempts < maxAttempts && !job) {
+				attempts++;
+				job = await getHighestPriorityJob(env, attempts);
+				if (!job) {
+					break;
+				}
+				const banned = await env.BANNED_WORKERS.get(`${machine_id}:${job.id}`);
+				if (banned) {
+					job = null;
+				}
+			}
 			if (!job) {
 				return [];
 			}
 			if (job.status === 'pending') {
-				await updateJobStatus(job.id!, 'running', env, data.query);
+				await updateJobStatus(job.id, 'running', env, data.query);
 			} else {
-				await updateJobHeartbeat(job.id!, data.query, env);
+				await updateJobHeartbeat(job.id, data.query, env);
 			}
 			job = await hydrateDataFiles(job, env);
 
